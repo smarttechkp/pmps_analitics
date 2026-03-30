@@ -1,15 +1,15 @@
 """
-main.py:
-    Ten moduł uruchamia proces analizy danych PMPS w oparciu o komunikaty odbierane z Kafki.
-    Odbiera komunikaty zawierające ścieżki do plików S3, parsuje je przy użyciu funkcji parse_s3_object,
-    a następnie przekazuje do przetwarzania procesorowi S3KMeansProcessor, który analizuje dane
-    i zapisuje wyniki do bazy SQL.
+main.py
+    - Runs the PMPS analytics process based on messages received from Kafka.
+    - Receives messages containing S3 file paths, parses them using parseS3object,
+      then passes them to the appropriate processor (ACT or AIR) for analysis.
+      Results are stored in the SQL database.
 
-Etapy działania:
-    1. Połączenie z serwerem Kafka i subskrypcja wskazanego tematu.
-    2. Odbiór wiadomości JSON zawierających ścieżki S3.
-    3. Parsowanie ścieżek S3 i uruchamianie przetwarzania danych.
-    4. Obsługa błędów w przypadku niepoprawnych wiadomości lub formatów.
+Processing steps:
+    1. Connect to Kafka server and subscribe to the configured topic.
+    2. Receive JSON messages containing S3 paths.
+    3. Parse S3 paths and run data processing.
+    4. Handle errors for invalid messages or unknown formats.
 """
 
 import json
@@ -28,11 +28,11 @@ print("PMPS analytics")
 s3 = S3Processor()
 sql = OracleProcessor()
 
-# Build task processor: S3 -> KMeans -> SQL
-ActProc = ActProcessor(s3=s3, sql_processor=sql)
+# Build ACT processor: S3 -> KMeans -> SQL
+act_proc = ActProcessor(s3=s3, sql_processor=sql)
 
-# Build task processor: S3 -> KMeans -> SQL
-AirProc = AirProcessor(s3=s3, sql_processor=sql)
+# Build AIR processor: S3 -> KMeans -> SQL
+air_proc = AirProcessor(s3=s3, sql_processor=sql)
 
 # Fetch configuration from environment variables
 KAFKA_SERVER = os.getenv("KAFKA_SERVER").split(",")
@@ -55,7 +55,7 @@ print(
 
 # ---TEST---
 """
-#s3_object = 'ACT/dn=KCSDVK113335V01MM11/date=2025-10-02/12.parquet' 
+#s3_object = 'ACT/dn=KCSDVK113335V01MM11/date=2025-10-02/12.parquet'
 s3_object = 'AIR/dn=KCSDVK11HP1VI1KKP01/date=2026-03-22/10.parquet'
 if not s3_object:
     print(f"[ERROR] Missing 's3_object' field in message: {msg_json}")
@@ -64,15 +64,15 @@ else:
         # Parse S3 path to extract device and datetime info
         info = parseS3object(s3_object)
 
-        # Run processing only for selected telegram types (example: ACT)
+        # Run processing for the detected telegram type
         if info["telegram"] == "ACT":
-            ActProc.process_s3_data(info["device"], info["datetime"])
+            act_proc.process_s3_data(info["device"], info["datetime"])
         elif info["telegram"] == "AIR":
-            AirProc.process_s3_data(info["device"], info["datetime"])
+            air_proc.process_s3_data(info["device"], info["datetime"])
     except ValueError as ve:
         print(f"[ERROR] Failed to parse S3 path: {ve}")
 """
-#-----------
+# ----------
 
 # Main Kafka message loop
 for message in consumer:
@@ -94,11 +94,13 @@ for message in consumer:
         # Parse S3 path to extract device and datetime info
         info = parseS3object(s3_object)
 
-        # Run processing only for selected telegram types (example: ACT)
+        # Route message to the appropriate processor based on telegram type
         if info["telegram"] == "ACT":
-            ActProc.process_s3_data(info["device"], info["datetime"])
+            act_proc.process_s3_data(info["device"], info["datetime"])
         elif info["telegram"] == "AIR":
-            AirProc.process_s3_data(info["device"], info["datetime"])
+            air_proc.process_s3_data(info["device"], info["datetime"])
+        else:
+            print(f"[WARNING] Unknown telegram type: {info['telegram']}")
     except ValueError as ve:
         print(f"[ERROR] Failed to parse S3 path: {ve}")
         continue
